@@ -1,8 +1,7 @@
 #!/bin/python3
 import os
-import random
-import re
-import time
+import subprocess
+import sys
 
 
 print(r"""
@@ -17,91 +16,72 @@ print(r"""
                      |___/           
 
 """)
-print("Version 1.1")
+print("Version 1.2")
 print("Created by Ryan 'Ghost' Voit")
-print("\nThis program will change the name of your computer under the /etc/hosts and the /etc/hostname file.")
-print("This program is meant to be run prior to macchanger to effectivly dodge the authentication filter.")
-print("After the computer has fully restarted should you run the macchanger command.")
-print("This program is meant for educational purposes only!")
-print("THIS PROGRAM WILL REQUIRE A RESTART AND WILL DO SO ONCE THE CHANGES HAVE BEEN MADE")
+print("\nThis program will change the hostname and the MAC address of your Kali Linux machine.")
+print("Your terminal promt will not change unless you close and reopen it.")
+print("This program is meant for educational purposes only!\n")
 
 
-def change_me():
+# Check if the user running the program is root
+def check_if_root():
+    if os.geteuid() != 0:
+        print("This script must be run with as root.")
+        sys.exit(1)
 
-        #opens the /hostname file, copies it, and closes it
-        hostname_file = open("/etc/hostname", "r")
-        HN = hostname_file.read()
-        hostname_file.close
+# check if the interface exists
+def interface_exists(interface):
+    try:
+        subprocess.run(['ip', 'link', 'show', interface], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        return True
+    except subprocess.CalledProcessError:
+        return False
 
-        #prints the string
-        print("Old Hostname: ")
-        print(str(HN) + "\n")
+# change the hostname
+def change_hostname(new_hostname):
+    try:
+        current_hostname = subprocess.check_output(['hostname']).decode().strip()
 
-        #reformating the string and alters it
-        HN = HN.replace('\n','')
-        rem = r'[0-9]'
-        originName = re.sub(rem, '', HN)
-        pin = random.randint(1111,9999)
-        newHN = (originName + str(pin))
-        print("New Hostname: ")
-        print(newHN)
+        # Set the new hostname using the 'hostnamectl' command
+        subprocess.run(['hostnamectl', 'set-hostname', new_hostname], check=True)
 
-        #opens the /hostname file and replaces the content with new string created
-        hostname_file = open("/etc/hostname", "w")
-        hostname_file.write(newHN)
-        hostname_file.close
+        # Update the /etc/hosts file to reflect the new hostname
+        with open("/etc/hosts", "r") as hosts_file:
+            hosts = hosts_file.read()
+            hosts = hosts.replace(current_hostname, new_hostname)
 
+        with open("/etc/hosts", "w") as hosts_file:
+            hosts_file.write(hosts)
 
-        #opens the /hosts file, copies it, and closes it
-        hosts_file = open("/etc/hosts", "r")
-        hosts = hosts_file.read()
-        hosts_file.close
+        subprocess.run(['systemctl', 'restart', 'networking'], check=True)
 
-        #replaces the old name to new name
-        hosts = hosts.replace(HN, newHN)
+        print("Hostname has been changed to", new_hostname)
+    except Exception as e:
+        print("An error occurred:", str(e))
 
-        #opens the /hosts file and writes in the new string
-        hosts_file = open("/etc/hosts", "w")
-        hosts_file.write(hosts)
-        hosts_file.close
+def alter_mac(interface):
+    try:
+        # Use 'macchanger -r' to change the MAC address of the specified interface
+        subprocess.run(['macchanger', '-r', interface], check=True)
 
-        print('\n')
-
-        #countdown to restart
-        def countdown(t):
-                print("Restarting in... \n")
-                while t > 0:
-                        print(t)
-                        print('\n')
-                        t -= 1
-                        time.sleep(1)
-                print("Good Bye!")
-                time.sleep(1)
-
-        countdown(5)
-
-        #restarts the system for everything to take effect
-        os.system("reboot")
+    except Exception as e:
+        print("An error occurred:", str(e))
 
 
-#asks user if they would like to continue with program
-choice = input("Would you like to proceed? \n")
+if __name__ == "__main__":
+    
+    check_if_root()
 
-if choice == "yes":
-        pat = 1
-elif choice == "YES":
-        pat = 1
-elif choice == "Yes":
-        pat = 1
-elif choice == "y":
-        pat = 1
-elif choice == "Y":
-        pat = 1
-else:
-        pat = 0
+    new_hostname = input("Enter the new hostname: ")
 
-if pat == 1:
-        print("\n")
-        change_me()
-else:
-        print("Goodbye")
+    while True:
+        interface = input("Enter the interface you want to change: ")
+
+        if interface_exists(interface):
+            break
+        else:
+            print("The specified interface does not exist. Please try again.")
+
+    # Call the function to change the hostname and restart services
+    change_hostname(new_hostname)
+    alter_mac(interface)
